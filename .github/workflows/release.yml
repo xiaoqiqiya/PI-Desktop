@@ -21,6 +21,8 @@
 # SSH bootstrap downloads that asset at the desktop's version and verifies the
 # published checksum before installing on the remote machine (rollout
 # 06-delivery/07-remote-control-rollout.md §6 acceptance 4; D375 / ADR 0284).
+# The Linux x64 bundle is additionally packaged as `ghcr.io/<owner>/pi-host`
+# and as an offline `pi-host-<version>-linux-x64-docker.tar` release asset.
 
 name: Release
 
@@ -459,10 +461,142 @@ jobs:
             apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz
             apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz.sha256
 
+  pi-host-docker:
+    name: Package pi-host Docker image (Linux x64)
+    needs: pi-host-bundle
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download pi-host bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: pi-host-linux-x64
+          path: docker-source
+
+      - name: Prepare Docker context and image coordinates
+        id: image
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./apps/pi-host/package.json').version")"
+          BUNDLE="docker-source/pi-host-${VERSION}-linux-x64.tar.gz"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "::error::expected pi-host bundle $BUNDLE"
+            find docker-source -maxdepth 2 -type f -print || true
+            exit 1
+          fi
+
+          mkdir -p docker-context docker-dist
+          tar -xzf "$BUNDLE" --strip-components=1 -C docker-context
+          cp apps/pi-host/docker/Dockerfile docker-context/Dockerfile
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repository="ghcr.io/${owner}/pi-host"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "archive=pi-host-${VERSION}-linux-x64-docker.tar" >> "$GITHUB_OUTPUT"
+
+
+      - name: Build pi-host image
+        run: |
+          set -euo pipefail
+          repository="${{ steps.image.outputs.repository }}"
+          version="${{ steps.image.outputs.version }}"
+          docker build \
+            --build-arg "PI_HOST_VERSION=$version" \
+            --build-arg "PI_HOST_SOURCE=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "$repository:$version" \
+            docker-context
+
+      - name: Smoke test pi-host image
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.repository }}:${{ steps.image.outputs.version }}"
+          container="pi-host-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --detach --name "$container" --network host "$image" --port 0
+          for _ in $(seq 1 30); do
+            if docker logs "$container" 2>&1 | grep -q '^PI_HOST_READY '; then
+              docker logs "$container"
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          echo "::error::pi-host image did not become ready"
+          exit 1
+
+      - name: Save offline Docker image
+        run: |
+          set -euo pipefail
+          docker save \
+            --output "docker-dist/${{ steps.image.outputs.archive }}" \
+            "${{ steps.image.outputs.repository }}:${{ steps.image.outputs.version }}"
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-host-docker-linux-x64
+          if-no-files-found: error
+          compression-level: 0
+          path: docker-dist/*.tar
+
+  pi-host-docker-push:
+    name: Push pi-host Docker image to GHCR
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: pi-host-docker
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: pi-host-docker-linux-x64
+          path: docker-dist
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load and push pi-host image
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find docker-dist -maxdepth 1 -type f -name 'pi-host-*-linux-x64-docker.tar' -print -quit)"
+          if [ -z "$archive" ]; then
+            echo "::error::pi-host Docker archive is missing"
+            exit 1
+          fi
+          docker load --input "$archive"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repository="ghcr.io/${owner}/pi-host"
+          version="${GITHUB_REF_NAME#v}"
+          docker tag "$repository:$version" "$repository:${GITHUB_REF_NAME}"
+          docker push "$repository:$version"
+          docker push "$repository:${GITHUB_REF_NAME}"
+
   publish:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, pi-host-bundle]
+    needs: [build, pi-host-bundle, pi-host-docker, pi-host-docker-push]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

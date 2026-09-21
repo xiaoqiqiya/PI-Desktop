@@ -433,3 +433,34 @@ test("GitHub releases trigger the CNB mirror pipeline with a JSON payload", () =
     "JSON payload must not interpolate the release tag through YAML string escaping",
   );
 });
+
+test("release workflow packages pi-host as a GHCR image and offline Docker tar", () => {
+  const dockerJob = releaseWorkflowSource.match(/^  pi-host-docker:\n[\s\S]*?(?=^  pi-host-docker-push:)/m)?.[0];
+  assert.ok(dockerJob, "pi-host Docker package job is missing");
+  assert.match(dockerJob, /^    needs: pi-host-bundle$/m);
+  assert.doesNotMatch(dockerJob, /packages: write/);
+  assert.match(dockerJob, /name: pi-host-linux-x64/);
+  assert.match(dockerJob, /cp apps\/pi-host\/docker\/Dockerfile docker-context\/Dockerfile/);
+  assert.match(dockerJob, /repository="ghcr\.io\/\$\{owner\}\/pi-host"/);
+  assert.match(dockerJob, /docker build/);
+  assert.match(dockerJob, /name: Smoke test pi-host image/);
+  assert.match(dockerJob, /docker run --detach[\s\S]*--network host[\s\S]*--port 0/);
+  assert.match(dockerJob, /\^PI_HOST_READY /);
+  assert.match(dockerJob, /docker save/);
+  assert.match(dockerJob, /pi-host-\$\{VERSION\}-linux-x64-docker\.tar/);
+  assert.match(dockerJob, /name: pi-host-docker-linux-x64/);
+  assert.match(dockerJob, /compression-level: 0/);
+
+  const pushJob = releaseWorkflowSource.match(/^  pi-host-docker-push:\n[\s\S]*?(?=^  publish:)/m)?.[0];
+  assert.ok(pushJob, "pi-host Docker push job is missing");
+  assert.match(pushJob, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(pushJob, /packages: write/);
+  assert.match(pushJob, /uses: docker\/login-action@v3/);
+  assert.match(pushJob, /docker load --input/);
+  assert.match(pushJob, /docker push "\$repository:\$version"/);
+  assert.match(pushJob, /docker push "\$repository:\$\{GITHUB_REF_NAME\}"/);
+
+  const publishJob = releaseWorkflowSource.match(/^  publish:\n[\s\S]*$/m)?.[0];
+  assert.ok(publishJob, "release publish job is missing");
+  assert.match(publishJob, /needs: \[build, pi-host-bundle, pi-host-docker, pi-host-docker-push\]/);
+});
