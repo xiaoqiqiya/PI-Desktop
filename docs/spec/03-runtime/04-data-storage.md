@@ -65,6 +65,7 @@ to an absolute path before it reaches host-core as a child-process variable.
  │    ├── <sessionId>.revisions.jsonl # regenerate branches, append-only
  │    └── <sessionId>.inflight.json   # streaming reply checkpoint (D299), transient
  ├── secrets/             # encrypted secret blobs + .machine-key (unchanged)
+ ├── config-sync/         # encrypted sync base/pending bundles — host-core only
  ├── attachments/         # content-addressed blobs (sha256 name), refs from messages
  ├── plugins/             # code + data + registry.json (unchanged, spec 07-11)
  ├── logs/                # NDJSON app/<category>, host/<category>, agent/<category> logs
@@ -88,6 +89,15 @@ turn + artifact in one commit). The DB stores **no large payloads**: message
 content lives in `sessions/`, attachments and tool outputs beyond the limits
 of [16-tool-result-limits](16-tool-result-limits.md) live on disk, referenced
 by path/hash.
+
+### 1.3 Portable configuration sync
+
+Host-core stores sync configuration in the `configSync` key-value namespace.
+The vault key reference and WebDAV password use the existing encrypted secret
+store. `config-sync/base.bin` and `config-sync/pending.bin` are authenticated
+encrypted bundles replaced with temp-file rename; they are not renderer- or
+sidecar-readable files. Sync revisions and resources remain remote immutable
+objects and do not change the SQLite schema or transcript retention.
 
 ### 2.0 Message-owned review snapshots (ADR 0043)
 
@@ -532,6 +542,12 @@ CREATE INDEX idx_session_import_origins_plugin
   message. Assistant Edit uses that child and records the original/edited
   response tails in the child's existing `message_revisions` store; the source
   transcript and source revisions are never rewritten.
+- Forks copy existing referenced files from `scratch/<sourceId>/pasted/` to
+  `scratch/<childId>/pasted/` and rewrite message/checkpoint paths before
+  indexing. Source deletion cannot remove the child copies. Unreferenced files,
+  later-message inputs outside a bounded fork, and other scratch outputs are
+  excluded. Missing expired inputs stay missing; no cross-session read grant
+  is added. Handled fork failures remove copied inputs and child transcripts.
 
 ### 4.6 turns — one row per agent run
 
@@ -1031,8 +1047,19 @@ behavior. Invalid or empty selections are rejected before mutation. No table
 migration is needed. Daily/weekly schedules use the host local timezone; hourly
 schedules compute `nextRunAt = now + 3_600_000`, ignoring calendar fields. Absence
 of `schedule` leaves legacy tasks unarmed. No physical schema change is made.
-Task wire fields project `schedule`, RFC3339 `nextRunAt` and `workspacePath`.
-See [the automation ADR](../../adr/scheduled-desktop-automations.md).
+Task wire fields project `schedule`, RFC3339 `nextRunAt`, `workspacePath` and the
+optional task-owned `permissionMode` plus paired `providerId`/`modelId` values.
+These additive values stay in `config_json`; no physical migration is required.
+Missing model fields retain run-time app-default resolution. Missing permission
+keeps legacy behavior: Ask for automatic runs and inherited permission for Run now.
+See [the automation ADR](../../adr/scheduled-desktop-automations.md) and
+[ADR 0305](../../adr/0305-scheduled-task-execution-settings.md).
+
+Tasks also persist optional `thinkingLevel` using the existing session values
+(including `off` and `omit`). The full Composer model/reasoning picker and
+controller are reused with a task-draft configuration callback. Both manual and
+automatic runs apply the saved level. Missing or cleared levels retain the
+legacy `off` behavior; no database migration is required.
 
 Scheduled task `config_json.mode` is a durable operating-mode value. There is
 intentionally no physical `scheduled_tasks.mode` column. The v7→v8
@@ -1532,6 +1559,13 @@ revision, Plan/Goal, collaboration, and queue operations remain unsupported
 for native sessions in this slice. Forking is supported as described here and in
 the runtime spec.
 
+The 0.87.1 `context_edit` entry is part of the native v3 JSONL branch. It changes
+only the SDK-built model projection by omitting or replacing a target message;
+the original line and renderer history remain intact. It is not copied into the
+Desktop transcript or SQLite, and needs no Desktop schema migration. The lease
+guard covers `SessionManager.appendContextEdit` alongside the other native
+append methods.
+
 A native fork writes exactly one new v3 JSONL child in the parent's session
 directory. Branch extraction runs against an in-memory manager over the parent
 snapshot, then child title/parent saved model/thinking fallbacks are appended in
@@ -1558,3 +1592,13 @@ and bounded asynchronous scanning remain deferred performance work.
 Host-core owns updates through `providers.reorder`; missing metadata preserves
 creation order, new IDs follow saved IDs, and deleted IDs are ignored. This
 preference does not rewrite provider configuration or require a schema migration.
+
+### Scheduled calendar provenance
+
+The optional `config_json.calendarConfigured` boolean records explicit calendar
+intent separately from the schedule object required by Hourly intervals.
+Legacy Daily/Weekly rows with a saved schedule infer calendar intent; legacy
+Hourly rows retain their fields but require explicit calendar confirmation
+when converted. Known intent survives cadence changes and database reopen.
+This additive JSON key needs no table or schema-version migration. Older
+versions ignore the key and cannot enforce the new conversion guard.
