@@ -54,10 +54,12 @@ SSH 引导配对（首个远程拓扑）：桌面经用户自己的 SSH 会话�
 SSH 登录已证明对该机器的 shell 访问，配对只是把一个桌面设备绑定到它启动的
 Host。配对 token 由 Host 启动时生成，单次使用，在引导窗口内过期，只经 SSH 通道
 传递，绝不写入可读文件或 URL；桌面在转发的 loopback 端口上用它一次性换取设备
-token 并存入安全存储，Host 把该设备记为 `owner`。Host 只绑定 loopback，只接受
-loopback 对端出示的设备 token；非 loopback 绑定要求 TLS 与同样的设备 token。引导脚本经 SSH 上传后，从 GitHub
-Releases 下载与桌面同版本、对应远端平台的 `pi-host` 包，校验随发布公布的 SHA-256 后
-安装到用户主目录；桌面自身从不上传可执行字节。首版无法引导没有 GitHub 出网能力的
+token 并存入安全存储，Host 把该设备记为 `owner`。Host 默认绑定 loopback，但
+运维者可以显式绑定非 loopback 地址。所有对端都必须出示同样有效的 header-profile
+设备 token 或配对 token，URL token 仍被拒绝；非 loopback 的明文 `ws://` 不加密，
+其传输机密性由部署者负责。引导脚本经 SSH 上传后，从 GitHub Releases 下载与桌面
+同版本、对应远端平台的 `pi-host` 包，校验随发布公布的 SHA-256 后安装到用户主目录；
+桌面自身从不上传可执行字节。首版无法引导没有 GitHub 出网能力的机器。
 机器。
 在 Host 上撤销设备 token 或在桌面移除该 Host 即结束配对，重新配对需要重新
 经 SSH 引导。远端 Host 的 provider 配置由引导步骤经 SSH 通道写入为 Host 本地
@@ -96,10 +98,11 @@ raw IPC 或任意命令执行。
 
 ## 4. 网络、附件和多租户
 
-公网 HTTP、SSE 和 WebSocket 必须使用 TLS，保留的 gRPC 同样适用；绑定 loopback
-并经 SSH 端口转发访问的 `pi-host`，在绑定地址与对端地址都是 loopback 且出示
-有效设备 token 时可接受明文 `ws://`，SSH 通道提供机密性，与 ADR 0203 的 loopback
-规则一致，任何非 loopback 绑定都要求 TLS；生产 Host link 必须双向认证。Origin、CORS、CSRF、cookie、WebSocket upgrade、token URL 和
+公网 Gateway HTTP、SSE 和 WebSocket 必须使用 TLS，保留的 gRPC 同样适用；
+`pi-host` 默认绑定 loopback并可经 SSH 端口转发访问，也允许运维者显式绑定
+非 loopback 地址。两种模式都强制 header-profile token，URL token 不允许。
+非 loopback 明文 `ws://` 不提供机密性，部署者必须自行使用可信网络或 TLS 终止；
+生产 Host link 必须双向认证。Origin、CORS、CSRF、cookie、WebSocket upgrade、token URL 和
 SSRF 都要在边界处校验。附件使用大小、hash、MIME 和过期时间校验，不能接受
 本地路径；经 Gateway 时 Gateway 只校验大小、分块中继到 Host，并在
 `attachment/complete` 成功或过期后删除副本。首个部署为单租户，路由已携带
@@ -141,8 +144,8 @@ operation、准入模式与 `effectivePermissionMode`、授权决定、epoch 与
 安全验收必须覆盖 TLS、角色矩阵、过期 token、重复 mutation、游标回放、慢客户端、
 上传边界、日志脱敏、Host/Gateway 重启、远程权限上限、浏览器 cookie/header
 profile 与 URL token 拒绝（浏览器里程碑排期后适用）、中继审批请求只应答一次
-（Gateway 里程碑排期后适用）、绑定 loopback 的 `pi-host` 只接受出示有效设备
-token 的 loopback 对端且无 TLS 的非 loopback 绑定无法启动、配对 token 单次使用且
+绑定 loopback 或显式非 loopback 的 `pi-host` 都只接受有效 header-profile token；
+缺失、无效、过期、已撤销、已消费或 URL 携带的 token 均失败。配对 token 单次使用且
 只经 SSH 通道传递、远程会话只暴露远端 Host 的工具目录与配对桌面公布的中继工具、中继工具绝不在 Host
 执行且 Host 审批先于中继请求、会话终端只对 SSH 配对 owner 或持有 `terminal` scope
 的主体开放，以及多租户 harness 就绪后的跨租户隔离。

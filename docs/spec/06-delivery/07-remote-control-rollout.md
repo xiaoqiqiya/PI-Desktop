@@ -326,9 +326,11 @@ binding may choose its native status and serialization, but it must preserve:
 
 ### 4.3 Security validation
 
-- invalid, expired, revoked, and wrong-Host device tokens;
-- non-loopback peers and non-loopback binds without TLS on a `pi-host`;
-- pairing token reuse and pairing over a non-SSH channel;
+- invalid, expired, revoked, and wrong-Host device or pairing tokens from both
+  loopback and non-loopback peers, including URL-token rejection;
+- explicit non-loopback binds accepting authenticated clients while missing or
+  invalid credentials fail closed, with plain-WS disclosure in operator docs;
+- pairing token reuse and expiry;
 - wrong role, wrong Session, wrong Host, and stale revision;
 - SSRF and arbitrary file/path attempts, including `workspace/read` outside
   the session root;

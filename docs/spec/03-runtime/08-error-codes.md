@@ -299,7 +299,7 @@ codes surface through the same error object as any other call.
 | `HOST_BOOTSTRAP_FAILED` | no | provisioning the remote `pi-host` over SSH failed (download, checksum mismatch, or `install.sh`); `details.reason` names the stage |
 | `HOST_VERSION_MISMATCH` | no | the remote `pi-host` version does not match the desktop; the desktop refuses to drive an incompatible host |
 | `REMOTE_AUTH_FAILED` | no | the device or pairing token was rejected on the RACP-WS upgrade |
-| `REMOTE_CONNECTION_FAILED` | yes | the RACP-WS transport could not connect (non-loopback URL, refused socket) |
+| `REMOTE_CONNECTION_FAILED` | yes | the RACP-WS transport could not connect (invalid scheme, refused socket, timeout, or protocol failure) |
 | `REMOTE_FORWARD_FAILED` | yes | the SSH loopback port forward could not be established |
 | `REMOTE_PATH_NOT_FOUND` | no | a remote project/workspace path does not exist on the host |
 | `REMOTE_PATH_FORBIDDEN` | no | a remote path is outside the host's permitted roots |

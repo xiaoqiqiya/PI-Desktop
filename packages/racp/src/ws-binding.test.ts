@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { networkInterfaces } from "node:os";
 import { WebSocket } from "ws";
 import { RACP_WS_SUBPROTOCOL } from "@pi-desktop/shared";
 
@@ -6,7 +7,7 @@ import { RacpClient } from "./client.js";
 import { OWNER_TOKEN, harness } from "./test-harness.js";
 import { bindRacpWebSocket, wsClientTransport } from "./ws-binding.js";
 
-describe("RACP-WS over a loopback socket", () => {
+describe("RACP-WS socket binding", () => {
   it("authenticates on the upgrade, runs the handshake, and delivers events over ws", async () => {
     const h = await harness();
     const binding = await bindRacpWebSocket({ server: h.server, authenticator: h.authenticator, port: 0, log: () => undefined });
@@ -76,9 +77,22 @@ describe("RACP-WS over a loopback socket", () => {
     }
   });
 
-  it("refuses to bind a non-loopback address and plain ws to a non-loopback host", async () => {
+  it("binds all interfaces and authenticates a non-loopback peer", async () => {
+    const address = Object.values(networkInterfaces())
+      .flatMap((entries) => entries ?? [])
+      .find((entry) => entry.family === "IPv4" && !entry.internal)?.address;
+    if (!address) return;
     const h = await harness();
-    await expect(bindRacpWebSocket({ server: h.server, authenticator: h.authenticator, host: "0.0.0.0", port: 0, log: () => undefined })).rejects.toMatchObject({ errorCode: "INVALID_ARGUMENT" });
-    await expect(wsClientTransport({ url: "ws://example.com/v1/racp/ws", token: OWNER_TOKEN })()).rejects.toMatchObject({ errorCode: "REMOTE_CONNECTION_FAILED" });
+    const binding = await bindRacpWebSocket({ server: h.server, authenticator: h.authenticator, host: "0.0.0.0", port: 0, log: () => undefined });
+    try {
+      expect(binding.address.host).toBe("0.0.0.0");
+      const url = `ws://${address}:${binding.address.port}/v1/racp/ws`;
+      const valid = new RacpClient({ transport: wsClientTransport({ url, token: OWNER_TOKEN }), client: { name: "remote", version: "1" } });
+      await expect(valid.connect()).resolves.toMatchObject({ server: { hostId: "host_test" } });
+      await valid.close();
+      await expect(new RacpClient({ transport: wsClientTransport({ url, token: "pdt1.bad" }), client: { name: "remote", version: "1" } }).connect()).rejects.toMatchObject({ code: "REMOTE_AUTH_FAILED" });
+    } finally {
+      await binding.close();
+    }
   });
 });

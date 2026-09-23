@@ -34,9 +34,11 @@ image or mounted from the host.
 
 ## Run on Linux
 
-`pi-host` intentionally binds loopback only. Docker bridge networking changes
-the peer address, so use Linux host networking to preserve that security
-boundary:
+The default listener remains `127.0.0.1:4123`. For direct LAN or public access,
+explicitly bind `0.0.0.0`. Every WebSocket upgrade still requires a valid
+device or single-use pairing token, including non-loopback peers. Plain `ws://`
+does not encrypt credentials or traffic; use a trusted network or place TLS in
+front of pi-host when confidentiality is required.
 
 ```bash
 docker pull ghcr.io/<repository-owner>/pi-host:X.Y.Z
@@ -44,10 +46,14 @@ docker pull ghcr.io/<repository-owner>/pi-host:X.Y.Z
 docker run -d \
   --name pi-host \
   --restart unless-stopped \
-  --network host \
+  -p 4123:4123 \
   -v pi-host-data:/data \
   -v /absolute/path/to/projects:/workspace \
-  ghcr.io/<repository-owner>/pi-host:X.Y.Z
+  ghcr.io/<repository-owner>/pi-host:X.Y.Z \
+  --host 0.0.0.0 \
+  --port 4123 \
+  --data-dir /data \
+  --browse-root /workspace
 ```
 
 The defaults are:
@@ -56,13 +62,9 @@ The defaults are:
 - Durable data: `/data`
 - Browsable project root: `/workspace`
 
-The port is not published with `-p`; reach it locally or through an SSH tunnel:
-
-```bash
-ssh -N -L 4123:127.0.0.1:4123 user@remote-host
-```
-
-Then connect to `ws://127.0.0.1:4123/v1/racp/ws` with a valid device token.
+For the original SSH topology, keep the default loopback bind and forward the
+port with `ssh -N -L 4123:127.0.0.1:4123 user@remote-host`. Direct clients use
+`ws://<host-address>:4123/v1/racp/ws` and must send a valid bearer device token.
 
 Bind-mounted project directories must be readable and writable by the
 container's `node` user (UID/GID 1000 by default), or be mounted read-only when

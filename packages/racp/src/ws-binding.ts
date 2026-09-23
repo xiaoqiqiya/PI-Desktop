@@ -5,14 +5,14 @@ import type { Socket } from "node:net";
 import { RACP_WS_PATH, RACP_WS_SUBPROTOCOL } from "@pi-desktop/shared";
 import { WebSocket, WebSocketServer } from "ws";
 
-import { isLoopbackAddress, type DeviceTokenAuthenticator } from "./auth.js";
+import type { DeviceTokenAuthenticator } from "./auth.js";
 import type { ClientTransport, ClientTransportFactory } from "./client.js";
 import type { RacpServer, ServerConnectionTransport } from "./server.js";
 
 export type WsBindingOptions = {
   server: RacpServer;
   authenticator: DeviceTokenAuthenticator;
-  /** Loopback only unless TLS terminates in front (security §5.1); a non-loopback bind is refused here. */
+  /** Bind address. Defaults to loopback; explicit non-loopback addresses are allowed. */
   host?: string;
   port: number;
   log: (level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>) => void;
@@ -46,18 +46,13 @@ function wsTransport(socket: WebSocket): ServerConnectionTransport {
 }
 
 /**
- * Bind the RACP server to a loopback WebSocket listener (spec §11.1). The
- * upgrade request carries the bearer credential; a token in the URL, a
- * non-loopback peer, a wrong path, or a missing subprotocol is refused
- * before any RPC runs.
+ * Bind the RACP server to a WebSocket listener (spec §11.1). Every peer,
+ * including a non-loopback peer, must authenticate through the header profile
+ * before any RPC runs. Tokens in URLs, wrong paths, missing subprotocols, and
+ * binary frames remain forbidden.
  */
 export async function bindRacpWebSocket(options: WsBindingOptions): Promise<WsBinding> {
   const host = options.host ?? "127.0.0.1";
-  if (!isLoopbackAddress(host)) {
-    throw Object.assign(new Error("pi-host binds loopback only; a non-loopback bind requires TLS"), {
-      errorCode: "INVALID_ARGUMENT",
-    });
-  }
   const http: Server = createServer((_request, response) => {
     response.statusCode = 426;
     response.setHeader("Upgrade", "websocket");
@@ -75,7 +70,6 @@ export async function bindRacpWebSocket(options: WsBindingOptions): Promise<WsBi
         socket.destroy();
       };
       if (url.pathname !== RACP_WS_PATH) return reject(404, "Not Found");
-      if (!isLoopbackAddress(request.socket.remoteAddress)) return reject(403, "Forbidden");
       const urlHasToken = [...url.searchParams.keys()].some((key) => /token|auth/i.test(key));
       const auth = await options.authenticator.authenticate({
         authorization: request.headers.authorization,
@@ -144,10 +138,6 @@ export function wsClientTransport(options: WsClientOptions): ClientTransportFact
       const url = new URL(options.url);
       if (url.protocol !== "ws:" && url.protocol !== "wss:") {
         reject(Object.assign(new Error("RACP endpoint must be ws:// or wss://"), { errorCode: "REMOTE_CONNECTION_FAILED" }));
-        return;
-      }
-      if (url.protocol === "ws:" && !isLoopbackAddress(url.hostname) && url.hostname !== "localhost") {
-        reject(Object.assign(new Error("plain ws:// is accepted only on loopback"), { errorCode: "REMOTE_CONNECTION_FAILED" }));
         return;
       }
       const socket = new WebSocket(url, [RACP_WS_SUBPROTOCOL], {

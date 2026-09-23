@@ -147,8 +147,11 @@ pairing only binds a desktop device to the Host it started.
 - The desktop exchanges it once, over the forwarded loopback port, for a
   device token that it stores in its secure storage; the Host records the
   device as `owner` of that Host.
-- The Host binds loopback only and accepts a device token only from a
-  loopback peer; a non-loopback bind requires TLS and the same device token.
+- The Host defaults to a loopback bind, but an operator may explicitly bind a
+  non-loopback address. Every peer must present the same valid header-profile
+  device or pairing token; URL tokens remain forbidden. Plain `ws://` outside
+  loopback is unencrypted, so transport confidentiality is the deployer's
+  responsibility.
 - The bootstrap script, uploaded over SSH, downloads the `pi-host` bundle for
   the remote platform at the desktop's version from GitHub Releases, verifies
   the SHA-256 published with the release, and installs it under the user's
@@ -487,10 +490,13 @@ separate, explicitly specified credential-management capability is added.
 15. A relayed server-initiated approval request is answered exactly once, and
     the answer reaches only the Host that raised it. Applies when the Gateway
     milestone is scheduled.
-16. A `pi-host` bound to loopback accepts only loopback peers with a valid
-    device token; a non-loopback bind without TLS fails to start.
-17. A pairing token is single-use, arrives only over the SSH channel, and
-    cannot be exchanged twice or from a non-loopback peer.
+16. A `pi-host` defaults to loopback and accepts an explicitly configured
+    non-loopback bind; loopback and non-loopback peers both require a valid
+    header-profile token, while missing, invalid, revoked, expired, consumed,
+    or URL-carried tokens fail.
+17. A pairing token is single-use and expires within its configured lifetime;
+    it cannot be exchanged twice, while a paired device token remains usable
+    until revoked.
 18. A remote session exposes only the remote Host's tool catalog; desktop
     plugin tools and desktop MCP servers never execute against a remote
     workspace, and provider secrets never cross RACP.

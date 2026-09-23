@@ -15,11 +15,11 @@ async function main(): Promise<void> {
   if (args.help === true) {
     process.stdout.write(
       [
-        "pi-host — headless PI Agent Host (RACP-WS on loopback)",
+        "pi-host — headless PI Agent Host (authenticated RACP-WS)",
         "",
         "  --data-dir <dir>          host data directory (default ~/.pi-desktop)",
-        "  --port <n>                loopback port (default 0 = pick free)",
-        "  --host <addr>             bind address; loopback only",
+        "  --port <n>                listen port (default 0 = pick free)",
+        "  --host <addr>             bind address (default 127.0.0.1; use 0.0.0.0 for remote access)",
         "  --pair                    print a single-use pairing token at start",
         "  --pairing-lifetime-ms <n> pairing token lifetime (default 600000)",
         "  --host-core <path>        pi-desktop-host-core binary",

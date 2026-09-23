@@ -111,7 +111,7 @@ transport and does not change the remote-control target.
 | Desktop RACP client adapter (Electron Main) | Present a remote Host to the renderer through the existing `lib/api.ts` surface; own SSH bootstrap, pairing, and port forwarding | A second transcript store; local execution of remote tools |
 | Agent Host | Own sessions, turns, the per-session turn queue, event cursors, attachment records, tool execution, and lifecycle | Browser presentation state |
 | Headless Agent Host module (`packages/agent-host`) | Own session/turn admission, the turn queue, the approval broker, the in-memory event log, and the snapshot builder; expose one typed API to desktop IPC, local MCP, RACP, and integrations | Electron, renderer, or transport dependencies; a second permission or persistence implementation |
-| `pi-host` headless bundle | Run the module, the Node pi sidecar, and Rust host-core on a remote machine, bound to loopback, at the same version as the desktop, downloaded from GitHub Releases by the bootstrap script | A desktop UI, plugin panels, another Host's secrets |
+| `pi-host` headless bundle | Run the module, Node pi sidecar, and Rust host-core on a remote machine at the desktop version; default to loopback for SSH bootstrap while allowing an explicit authenticated non-loopback bind | A desktop UI, plugin panels, another Host's secrets |
 | Messaging integration adapter | Subscribe to host-scope events in the Host process and relay redacted summaries to outbound channels; map a fixed command vocabulary to turn and approval operations | Its own permission policy, an inbound listener, raw transcript content |
 | Self-hosted Gateway (unscheduled) | Admit Host-issued device credentials, authorize routing, maintain Host links, rate-limit, audit, buffer attachment uploads transiently, and (reserved) push redacted summaries | Provider secrets, durable transcript truth, arbitrary host-core access, attachment bytes beyond the upload window |
 | Node pi sidecar | Run the pi Agent loop and provider streams | Remote authentication, workspace policy, secret storage |
@@ -176,11 +176,12 @@ channel by the bootstrap step, as Host-local configuration. It never crosses
 RACP, so the secret boundary in `05-security/02-remote-control-security.md`
 §7 is unchanged.
 
-The Host binds loopback only. Plain `ws://` is accepted on that port only
-when both the bind address and the peer address are loopback and a valid
-device token is presented, because the SSH channel provides confidentiality
-and the SSH login already proves shell access to the machine. A non-loopback
-bind requires TLS and a device token exactly as before.
+The Host defaults to loopback for the SSH-tunnel topology. Operators may
+explicitly bind a non-loopback address (for example `0.0.0.0`) for direct
+clients. All peers must present a valid header-profile device or pairing token;
+tokens in URLs remain forbidden. Direct plain `ws://` traffic is unencrypted,
+so deployments that need confidentiality must provide a trusted network or TLS
+termination outside pi-host.
 
 ### 5.3 Self-hosted Gateway (unscheduled)
 

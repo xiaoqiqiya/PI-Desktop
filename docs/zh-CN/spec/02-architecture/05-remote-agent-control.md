@@ -45,7 +45,7 @@ Gateway 的模式，服务端经用户自己的 SSH 会话引导，客户端通�
 | 桌面 RACP 客户端适配层（Electron Main） | 通过现有 `lib/api.ts` 表面把远端 Host 呈现给 renderer；负责 SSH 引导、配对和端口转发 | 第二份 transcript 存储；在本地执行远端工具 |
 | Agent Host | 拥有会话、回合、每会话回合队列、事件游标、附件、工具执行和生命周期 | 浏览器展示状态 |
 | 无头 Agent Host 模块（`packages/agent-host`） | 会话/回合准入、回合队列、审批代理、内存事件日志、快照构建；向桌面 IPC、本地 MCP、RACP 和集成暴露同一套 API | Electron、renderer 或传输依赖；第二套权限或持久化实现 |
-| `pi-host` 无头包 | 在远端机器上以桌面同版本运行模块、Node pi sidecar 和 Rust host-core，只绑定 loopback，由引导脚本从 GitHub Releases 下载 | 桌面 UI、插件面板、其他 Host 的 secret |
+| `pi-host` 无头包 | 在远端机器上以桌面同版本运行模块、Node pi sidecar 和 Rust host-core；SSH 引导默认绑定 loopback，也允许显式配置带认证的非 loopback 绑定 | 桌面 UI、插件面板、其他 Host 的 secret |
 | 消息集成适配层 | 在 Host 进程内订阅 Host 范围事件，把脱敏摘要转发到出站渠道；把固定指令词汇映射到回合与审批操作 | 自己的权限策略、入站监听器、原始 transcript 内容 |
 | 自托管 Gateway（不排期） | 以 Host 签发的设备凭据准入、路由、Host link、限流、审计、上传字节的瞬态缓冲、（保留）推送脱敏摘要 | provider secret、完整 transcript、host-core 访问、上传窗口之外的附件字节 |
 | Node pi sidecar | 运行 pi Agent 和 provider stream | 远程认证、工作区策略、secret storage |
@@ -81,9 +81,11 @@ GitHub Releases 下载与桌面同版本的 `pi-host` 包并校验公布的 SHA-
 配对 token，转发本地端口后以 header profile 连接 `RACP-WS`，用配对 token 换取
 设备 token 存入桌面安全存储；Host 把该桌面设备记为 `owner`。远端 Host 的
 provider 配置由引导步骤经 SSH 通道写入，是 Host 本地配置，绝不经过 RACP。
-Host 只绑定 loopback；只有绑定地址与对端地址都是 loopback且出示有效设备 token
-时才接受明文 `ws://`，因为 SSH 通道已提供机密性，SSH 登录也已证明对该机器的
-shell 访问。非 loopback 绑定仍要求 TLS 与设备 token。首版无法引导没有 GitHub 出网能力的机器。
+Host 在 SSH 隧道拓扑中默认绑定 loopback。运维者也可以显式绑定非 loopback 地址
+（例如 `0.0.0.0`）供客户端直连。所有对端都必须在 header profile 中出示有效的
+设备 token 或配对 token，URL token 仍被拒绝。非 loopback 的明文 `ws://` 不提供
+机密性；需要传输加密的部署必须使用可信网络或在 pi-host 外部终止 TLS。首版无法
+引导没有 GitHub 出网能力的机器。
 
 ### 4.3 自托管 Gateway（不排期）
 

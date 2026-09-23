@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export type PiHostConfig = {
   dataDir: string;
-  /** Loopback bind address; `pi-host` refuses anything else. */
+  /** Bind address; defaults to loopback, with explicit non-loopback binds allowed. */
   host: string;
   /** `0` picks a free port and prints it. */
   port: number;

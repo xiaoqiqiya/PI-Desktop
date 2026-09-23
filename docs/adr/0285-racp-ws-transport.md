@@ -34,11 +34,13 @@ no code implemented.
    RPC, a filesystem, or a pty (security §7).
 3. **Header-profile authentication with Host-issued device tokens.** The
    upgrade request must carry `Authorization: Bearer`; a token in the URL, a
-   non-loopback peer, a wrong path, a missing subprotocol, or a binary frame
-   is refused before any RPC. Tokens are `pdt1.` (device) or `ppt1.` (pairing),
-   stored as SHA-256 hashes, and compared in constant time. A pairing token is
-   single-use and expiring; it authenticates an unprivileged connection that
-   may only call `connection/pair`, which mints an `owner` device.
+   wrong path, a missing subprotocol, or a binary frame is refused before any
+   RPC. Loopback remains the default bind, while an explicit non-loopback bind
+   and peer are allowed under the same authentication. Tokens are `pdt1.`
+   (device) or `ppt1.` (pairing), stored as SHA-256 hashes, and compared in
+   constant time. A pairing token is single-use and expiring; it authenticates
+   an unprivileged connection that may only call `connection/pair`, which mints
+   an `owner` device.
 4. **Three catalog additions, all in the remote-host profile:**
    `connection/pair`, `project/register`, and `project/browse`. Six codes
    join the shared error registry: `PAIRING_FAILED`,
@@ -72,8 +74,9 @@ no code implemented.
 - Attachments and the tool relay are advertised as unavailable
   (`attachments: false`, `toolRelay: false`) and their operations fail with
   `CAPABILITY_UNAVAILABLE`; they land with their own change.
-- The server bind refuses a non-loopback address outright rather than
-  offering a TLS path; a non-loopback deployment is a later decision.
+- The server defaults to loopback but accepts an explicitly configured
+  non-loopback bind. Authentication is identical for every peer; plain
+  non-loopback `ws://` is unencrypted and requires operator risk acceptance.
 
 ## Alternatives considered
 
