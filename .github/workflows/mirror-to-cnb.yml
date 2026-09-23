@@ -30,7 +30,7 @@ concurrency:
 jobs:
   trigger:
     name: Trigger CNB mirror pipeline
-    if: github.repository == 'vastsa/PI-Desktop'
+    if: github.repository == 'vastsa/PI-Desktop' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

@@ -7,6 +7,7 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 const [
   ciWorkflowSource,
   releaseWorkflowSource,
+  piHostReleaseWorkflowSource,
   desktopPackageSource,
   linuxPackageWorkflowSource,
   mirrorToCnbWorkflowSource,
@@ -19,6 +20,7 @@ const [
 ] = await Promise.all([
   read("../../../.github/workflows/ci.yml"),
   read("../../../.github/workflows/release.yml"),
+  read("../../../.github/workflows/pi-host-release.yml"),
   read("../package.json"),
   read("../../../.github/workflows/linux-package.yml"),
   read("../../../.github/workflows/mirror-to-cnb.yml"),
@@ -409,7 +411,7 @@ test("GitHub releases trigger the CNB mirror pipeline with a JSON payload", () =
   );
   assert.match(
     mirrorToCnbWorkflowSource,
-    /if: github\.repository == 'vastsa\/PI-Desktop'/,
+    /if: github\.repository == 'vastsa\/PI-Desktop'[\s\S]*startsWith\(github\.event\.release\.tag_name, 'v'\)/,
   );
   assert.match(
     mirrorToCnbWorkflowSource,
@@ -434,33 +436,45 @@ test("GitHub releases trigger the CNB mirror pipeline with a JSON payload", () =
   );
 });
 
-test("release workflow packages pi-host as a GHCR image and offline Docker tar", () => {
-  const dockerJob = releaseWorkflowSource.match(/^  pi-host-docker:\n[\s\S]*?(?=^  pi-host-docker-push:)/m)?.[0];
-  assert.ok(dockerJob, "pi-host Docker package job is missing");
-  assert.match(dockerJob, /^    needs: pi-host-bundle$/m);
-  assert.doesNotMatch(dockerJob, /packages: write/);
-  assert.match(dockerJob, /name: pi-host-linux-x64/);
-  assert.match(dockerJob, /cp apps\/pi-host\/docker\/Dockerfile docker-context\/Dockerfile/);
-  assert.match(dockerJob, /repository="ghcr\.io\/\$\{owner\}\/pi-host"/);
-  assert.match(dockerJob, /docker build/);
-  assert.match(dockerJob, /name: Smoke test pi-host image/);
-  assert.match(dockerJob, /docker run --detach[\s\S]*--network host[\s\S]*--port 0/);
-  assert.match(dockerJob, /\^PI_HOST_READY /);
-  assert.match(dockerJob, /docker save/);
-  assert.match(dockerJob, /pi-host-\$\{VERSION\}-linux-x64-docker\.tar/);
-  assert.match(dockerJob, /name: pi-host-docker-linux-x64/);
-  assert.match(dockerJob, /compression-level: 0/);
+test("pi-host has an independent bundle, Docker, GHCR, and release workflow", () => {
+  assert.match(piHostReleaseWorkflowSource, /name: Pi Host Docker Release/);
+  assert.match(piHostReleaseWorkflowSource, /^  workflow_dispatch:/m);
+  assert.match(piHostReleaseWorkflowSource, /branches: \[main\]/);
+  assert.match(piHostReleaseWorkflowSource, /tags: \['pi-host-v\*\.\*\.\*'\]/);
+  assert.match(piHostReleaseWorkflowSource, /Manual pi-host publication must run from main/);
+  assert.match(piHostReleaseWorkflowSource, /Validate package, runtime, and tag versions/);
+  assert.match(piHostReleaseWorkflowSource, /cargo build --release --locked -p host-core/);
+  assert.match(piHostReleaseWorkflowSource, /node apps\/pi-host\/scripts\/bundle\.mjs --platform linux --arch x64/);
+  assert.match(piHostReleaseWorkflowSource, /name: pi-host-linux-x64/);
 
-  const pushJob = releaseWorkflowSource.match(/^  pi-host-docker-push:\n[\s\S]*?(?=^  publish:)/m)?.[0];
-  assert.ok(pushJob, "pi-host Docker push job is missing");
-  assert.match(pushJob, /if: startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  const containerJob = piHostReleaseWorkflowSource.match(/^  container:\n[\s\S]*?(?=^  push-image:)/m)?.[0];
+  assert.ok(containerJob, "independent pi-host container job is missing");
+  assert.match(containerJob, /cp apps\/pi-host\/docker\/Dockerfile docker-context\/Dockerfile/);
+  assert.match(containerJob, /docker build/);
+  assert.match(containerJob, /name: Smoke test pi-host image/);
+  assert.match(containerJob, /docker run --detach[\s\S]*--network host[\s\S]*--port 0/);
+  assert.match(containerJob, /\^PI_HOST_READY /);
+  assert.match(containerJob, /docker save/);
+  assert.match(containerJob, /name: pi-host-docker-linux-x64/);
+
+  const pushJob = piHostReleaseWorkflowSource.match(/^  push-image:\n[\s\S]*?(?=^  publish-release-assets:)/m)?.[0];
+  assert.ok(pushJob, "independent pi-host GHCR push job is missing");
   assert.match(pushJob, /packages: write/);
   assert.match(pushJob, /uses: docker\/login-action@v3/);
   assert.match(pushJob, /docker load --input/);
+  assert.match(pushJob, /refs\/tags\/pi-host-v/);
   assert.match(pushJob, /docker push "\$repository:\$version"/);
-  assert.match(pushJob, /docker push "\$repository:\$\{GITHUB_REF_NAME\}"/);
+  assert.match(pushJob, /docker push "\$repository:v\$version"/);
+  assert.match(pushJob, /docker push "\$repository:main"/);
+  assert.match(pushJob, /docker push "\$repository:\$sha_tag"/);
 
-  const publishJob = releaseWorkflowSource.match(/^  publish:\n[\s\S]*$/m)?.[0];
-  assert.ok(publishJob, "release publish job is missing");
-  assert.match(publishJob, /needs: \[build, pi-host-bundle, pi-host-docker, pi-host-docker-push\]/);
+  const publishJob = piHostReleaseWorkflowSource.match(/^  publish-release-assets:\n[\s\S]*$/m)?.[0];
+  assert.ok(publishJob, "independent pi-host release-assets job is missing");
+  assert.match(publishJob, /if: startsWith\(github\.ref, 'refs\/tags\/pi-host-v'\)/);
+  assert.match(publishJob, /uses: softprops\/action-gh-release@v3/);
+  assert.match(publishJob, /contains\(github\.ref_name, '-beta\.'\)/);
+
+  assert.doesNotMatch(releaseWorkflowSource, /^  pi-host-bundle:/m);
+  assert.doesNotMatch(releaseWorkflowSource, /^  pi-host-docker:/m);
+  assert.doesNotMatch(releaseWorkflowSource, /^  pi-host-docker-push:/m);
 });

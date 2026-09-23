@@ -1,0 +1,282 @@
+# Independent pi-host bundle and Docker publication.
+#
+# Main pushes that touch pi-host/runtime packaging, and manual runs selected
+# from main, publish `main` plus `sha-<commit>` to GHCR. Dedicated
+# `pi-host-v<version>` tags publish versioned images and a pi-host-only GitHub
+# Release. The Desktop installer matrix is never run by this workflow.
+
+name: Pi Host Docker Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['pi-host-v*.*.*']
+    paths:
+      - '.github/workflows/pi-host-release.yml'
+      - 'apps/pi-host/**'
+      - 'packages/agent-host/**'
+      - 'packages/agent-runtime/**'
+      - 'packages/host-runtime/**'
+      - 'packages/racp/**'
+      - 'packages/shared/**'
+      - 'crates/host-core/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pnpm-lock.yaml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-host-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: Build pi-host bundle (Linux x64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require main for manual publication
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Manual pi-host publication must run from main."
+          exit 1
+
+      - name: Validate package, runtime, and tag versions
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./apps/pi-host/package.json').version")"
+          shared_package_version="$(node -p "require('./packages/shared/package.json').version")"
+          runtime_version="$(node --input-type=module - <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const source = await readFile('packages/shared/src/protocol.ts', 'utf8');
+          const match = source.match(/export const APP_VERSION = "([^"]+)"/);
+          if (!match) throw new Error('APP_VERSION is missing from packages/shared/src/protocol.ts');
+          process.stdout.write(match[1]);
+          NODE
+          )"
+          if [ "$package_version" != "$shared_package_version" ] || [ "$package_version" != "$runtime_version" ]; then
+            echo "::error::pi-host ($package_version), shared package ($shared_package_version), and APP_VERSION ($runtime_version) must match."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/pi-host-v* ]]; then
+            tag_version="${GITHUB_REF_NAME#pi-host-v}"
+            if [ "$tag_version" != "$package_version" ]; then
+              echo "::error::Tag pi-host-v$tag_version does not match apps/pi-host/package.json version $package_version."
+              exit 1
+            fi
+          fi
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build host-core, workspace, and sidecar bundle
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p host-core &
+          host_build_pid=$!
+          trap 'kill "$host_build_pid" 2>/dev/null || true' EXIT
+
+          pnpm install --frozen-lockfile
+          pnpm build:js
+          pnpm --filter @pi-desktop/agent-runtime bundle
+          pnpm --filter @pi-desktop/pi-host build
+
+          wait "$host_build_pid"
+          trap - EXIT
+
+      - name: Verify host-core glibc floor
+        run: node scripts/check-linux-host-glibc.mjs target/release/pi-desktop-host-core
+
+      - name: Assemble and archive pi-host bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/pi-host/package.json').version")"
+          name="pi-host-${version}-linux-x64"
+          out="apps/pi-host/dist-bundle"
+
+          node apps/pi-host/scripts/bundle.mjs --platform linux --arch x64
+          test -d "$out/$name"
+          tar -czf "$out/${name}.tar.gz" -C "$out" "$name"
+          ( cd "$out" && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          cat "$out/${name}.tar.gz.sha256"
+
+      - name: Upload pi-host bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-host-linux-x64
+          if-no-files-found: error
+          compression-level: 0
+          path: |
+            apps/pi-host/dist-bundle/${{ steps.bundle.outputs.name }}.tar.gz
+            apps/pi-host/dist-bundle/${{ steps.bundle.outputs.name }}.tar.gz.sha256
+
+  container:
+    name: Build and test pi-host Docker image
+    needs: bundle
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Download pi-host bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: pi-host-linux-x64
+          path: docker-source
+
+      - name: Prepare Docker context
+        id: image
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/pi-host/package.json').version")"
+          bundle="docker-source/pi-host-${version}-linux-x64.tar.gz"
+          test -f "$bundle"
+
+          mkdir -p docker-context docker-dist
+          tar -xzf "$bundle" --strip-components=1 -C docker-context
+          cp apps/pi-host/docker/Dockerfile docker-context/Dockerfile
+
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repository=ghcr.io/${owner}/pi-host" >> "$GITHUB_OUTPUT"
+          echo "archive=pi-host-${version}-linux-x64-docker.tar" >> "$GITHUB_OUTPUT"
+
+      - name: Build pi-host image
+        run: |
+          docker build \
+            --build-arg "PI_HOST_VERSION=${{ steps.image.outputs.version }}" \
+            --build-arg "PI_HOST_SOURCE=https://github.com/${GITHUB_REPOSITORY}" \
+            --tag "${{ steps.image.outputs.repository }}:${{ steps.image.outputs.version }}" \
+            docker-context
+
+      - name: Smoke test pi-host image
+        run: |
+          set -euo pipefail
+          image="${{ steps.image.outputs.repository }}:${{ steps.image.outputs.version }}"
+          container="pi-host-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          docker run --detach --name "$container" --network host "$image" --port 0
+          for _ in $(seq 1 30); do
+            if docker logs "$container" 2>&1 | grep -q '^PI_HOST_READY '; then
+              docker logs "$container"
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' "$container")" != "true" ]; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          echo "::error::pi-host image did not become ready"
+          exit 1
+
+      - name: Save offline Docker image
+        run: |
+          docker save \
+            --output "docker-dist/${{ steps.image.outputs.archive }}" \
+            "${{ steps.image.outputs.repository }}:${{ steps.image.outputs.version }}"
+
+      - name: Upload offline Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pi-host-docker-linux-x64
+          if-no-files-found: error
+          compression-level: 0
+          path: docker-dist/*.tar
+
+  push-image:
+    name: Push pi-host image to GHCR
+    needs: container
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: pi-host-docker-linux-x64
+          path: docker-dist
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load and push image tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find docker-dist -maxdepth 1 -type f -name 'pi-host-*-linux-x64-docker.tar' -print -quit)"
+          test -n "$archive"
+          docker load --input "$archive"
+
+          filename="${archive##*/}"
+          version="${filename#pi-host-}"
+          version="${version%-linux-x64-docker.tar}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repository="ghcr.io/${owner}/pi-host"
+          sha_tag="sha-${GITHUB_SHA:0:12}"
+
+          if [[ "$GITHUB_REF" == refs/tags/pi-host-v* ]]; then
+            docker tag "$repository:$version" "$repository:v$version"
+            docker push "$repository:$version"
+            docker push "$repository:v$version"
+          else
+            docker tag "$repository:$version" "$repository:main"
+            docker tag "$repository:$version" "$repository:$sha_tag"
+            docker push "$repository:main"
+            docker push "$repository:$sha_tag"
+          fi
+
+  publish-release-assets:
+    name: Publish pi-host GitHub Release
+    if: startsWith(github.ref, 'refs/tags/pi-host-v')
+    needs: [bundle, container, push-image]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload pi-host release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          files: release-assets/*
+          prerelease: ${{ contains(github.ref_name, '-beta.') || contains(github.ref_name, '-rc.') || contains(github.ref_name, '-alpha.') }}

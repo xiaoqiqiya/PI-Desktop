@@ -23,8 +23,8 @@ executable bytes, and it never holds an SSH secret.
 
 Three properties of the system as it stands shaped the design:
 
-- `release.yml` publishes `pi-host-<version>-<platform>-<arch>.tar.gz` and its
-  `.sha256` to the `v<version>` GitHub Release, and the bundle matrix is Linux
+- `pi-host-release.yml` publishes `pi-host-<version>-<platform>-<arch>.tar.gz` and its
+  `.sha256` to the dedicated `pi-host-v<version>` GitHub Release, and the bundle matrix is Linux
   x64 only.
 - A paired host is a URL in `remote-hosts.json`, but a bootstrapped host has no
   stable URL: the local port of a forward is chosen per launch.

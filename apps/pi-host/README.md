@@ -2,20 +2,25 @@
 
 `pi-host` is the headless PI Agent Host used by PI-Desktop remote sessions. The
 normal release artifact is a Linux tarball installed by the desktop over SSH.
-Tag releases also publish a Linux x64 container image assembled from the same
-bundle.
+The independent `.github/workflows/pi-host-release.yml` workflow builds the
+Linux x64 bundle, packages and smoke-tests its container, publishes GHCR tags,
+and uploads offline artifacts without running the Desktop installer matrix.
 
 ## Container artifacts
 
-For release `vX.Y.Z`:
+For package version `X.Y.Z`:
 
-- Registry image: `ghcr.io/<repository-owner>/pi-host:X.Y.Z`
-- Registry tag alias: `ghcr.io/<repository-owner>/pi-host:vX.Y.Z`
-- Offline GitHub Release asset: `pi-host-X.Y.Z-linux-x64-docker.tar`
+- Versioned registry image (dedicated Tag only): `ghcr.io/<repository-owner>/pi-host:X.Y.Z`
+- Main alias: `ghcr.io/<repository-owner>/pi-host:main`
+- Commit alias: `ghcr.io/<repository-owner>/pi-host:sha-<commit>`
+- Dedicated Tag alias: `ghcr.io/<repository-owner>/pi-host:vX.Y.Z`
+- Offline Actions artifact: `pi-host-X.Y.Z-linux-x64-docker.tar`
+- Dedicated Tag release assets: the Docker tar, native bundle tarball, and SHA-256
 
-Manual release-workflow runs build the image and upload the offline tar as a
-GitHub Actions artifact without pushing it. Tag runs push the two GHCR tags and
-add the offline image tar to the GitHub Release.
+A relevant push to `main`, or **Pi Host Docker Release** run manually from
+`main`, refreshes `:main` and publishes `:sha-<commit>`. Pushing the dedicated
+`pi-host-vX.Y.Z` Tag publishes the versioned
+`:X.Y.Z` and `:vX.Y.Z` images and creates a pi-host-only GitHub Release.
 
 The image uses Node 24 on Debian because `pi-host` is a Node application and the
 released `host-core` binary targets glibc. It cannot use a literal `scratch`

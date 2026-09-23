@@ -286,7 +286,29 @@ Deployments are disabled in `docs/vercel.json`, so changes to documentation
 sources do not automatically update the production site. Deployments must be
 initiated manually in Vercel when required.
 
-### 4.5 CNB mirror trigger
+### 4.5 Independent pi-host publication
+
+`.github/workflows/pi-host-release.yml` is the sole CI/CD owner of the Linux
+x64 `pi-host` bundle and container. It does not depend on the Desktop installer
+matrix, so a macOS signing or installer failure cannot block the Host image.
+
+- A manual run is accepted only from `main`; it builds the native bundle,
+  verifies the glibc floor, builds and starts the container until
+  `PI_HOST_READY`, uploads the bundle/checksum/offline Docker tar as Actions
+  artifacts, refreshes `ghcr.io/<owner>/pi-host:main`, and publishes a
+  `:sha-<commit>` image.
+- A dedicated `pi-host-vX.Y.Z` tag must match `apps/pi-host/package.json`, the
+  shared package version, and runtime `APP_VERSION`; it performs the same build,
+  pushes versioned `:<version>` plus `:vX.Y.Z`, then creates a pi-host-only
+  GitHub Release containing the native tarball, checksum, and Docker tar.
+- The GHCR push job alone receives `packages: write`; the build jobs remain
+  read-only. Operator commands and the Linux host-network requirement are in
+  `apps/pi-host/README.md`.
+
+The general `.github/workflows/release.yml` owns Desktop installers only and
+must not duplicate the pi-host bundle or image jobs.
+
+### 4.6 CNB mirror trigger
 
 After `softprops/action-gh-release` publishes or updates a GitHub Release,
 `.github/workflows/mirror-to-cnb.yml` starts the CNB pipeline at
@@ -297,7 +319,8 @@ https://cnb.cool/aixk/Pi-Desktop.
 The job:
 
 - runs only on `vastsa/PI-Desktop`
-- fires on `release` `published` / `edited`, and on `workflow_dispatch` with
+- mirrors only Desktop `v...` releases on `release` `published` / `edited`,
+  ignoring dedicated `pi-host-v...` releases; it also supports `workflow_dispatch` with
   an explicit tag such as `v0.14.6`
 - sends event `api_trigger_mirror` and `MIRROR_TAGS` set to that tag
 - uses repository secret `CNB_MIRROR_TOKEN` (already configured) and fails
@@ -309,7 +332,7 @@ Re-running the workflow for the same tag is safe if the CNB pipeline is
 idempotent. It does not rebuild desktop artifacts and does not change
 electron-updater feeds.
 
-### 4.6 GitHub Actions secrets for macOS signing
+### 4.7 GitHub Actions secrets for macOS signing
 
 Create these under GitHub → repository `vastsa/PI-Desktop` → Settings →
 Secrets and variables → Actions. Never commit the p12, password, Apple ID, or
@@ -332,7 +355,7 @@ base64 -i developer-id-application.p12 | pbcopy
 On Linux use `base64 -w0 developer-id-application.p12`. Files that must never
 enter git: `*.p12`, `*.cer`, `*.p8`, `*.mobileprovision`.
 
-### 4.7 macOS signing observability and timeouts
+### 4.8 macOS signing observability and timeouts
 
 `electron-builder` prints one line before signing — `signing
 file=release/mac-arm64/PI-Desktop.app platform=darwin type=distribution
