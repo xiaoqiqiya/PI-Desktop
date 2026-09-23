@@ -293,7 +293,8 @@ x64 `pi-host` bundle and container. It does not depend on the Desktop installer
 matrix, so a macOS signing or installer failure cannot block the Host image.
 
 - A manual run is accepted only from `main`; it builds the native bundle,
-  verifies the glibc floor, builds and starts the container until
+  builds host-core for `x86_64-unknown-linux-musl`, rejects any dynamic ELF
+  interpreter or shared-library dependency, and starts the container until
   `PI_HOST_READY`, uploads the bundle/checksum/offline Docker tar as Actions
   artifacts, refreshes `ghcr.io/<owner>/pi-host:main`, and publishes a
   `:sha-<commit>` image.

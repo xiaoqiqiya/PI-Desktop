@@ -234,7 +234,8 @@ DMG、ZIP、NSIS、AppImage、deb、rpm、块图和更新程序提要输出已
 唯一的 CI/CD 入口。它不依赖桌面安装包矩阵，因此 macOS 签名或安装包失败不会阻塞
 Host 镜像。
 
-- 手动运行只允许选择 `main`：构建原生 bundle、检查 glibc 下限、构建容器并启动到
+- 手动运行只允许选择 `main`：以 `x86_64-unknown-linux-musl` 构建 host-core，拒绝任何动态 ELF interpreter
+  或共享库依赖，构建容器并启动到
   `PI_HOST_READY`，上传 bundle/checksum/离线 Docker tar 到 Actions Artifacts，并且
   刷新 `ghcr.io/<owner>/pi-host:main`，并发布 `:sha-<commit>`。
 - 专属 `pi-host-vX.Y.Z` Tag 必须同时匹配 `apps/pi-host/package.json`、shared package

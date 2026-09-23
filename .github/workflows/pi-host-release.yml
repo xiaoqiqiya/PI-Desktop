@@ -82,13 +82,20 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y musl-tools
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Build host-core, workspace, and sidecar bundle
         run: |
           set -euo pipefail
-          cargo build --release --locked -p host-core &
+          cargo build --release --locked -p host-core --target x86_64-unknown-linux-musl &
           host_build_pid=$!
           trap 'kill "$host_build_pid" 2>/dev/null || true' EXIT
 
@@ -100,8 +107,21 @@ jobs:
           wait "$host_build_pid"
           trap - EXIT
 
-      - name: Verify host-core glibc floor
-        run: node scripts/check-linux-host-glibc.mjs target/release/pi-desktop-host-core
+      - name: Verify host-core is statically linked
+        run: |
+          set -euo pipefail
+          binary="target/x86_64-unknown-linux-musl/release/pi-desktop-host-core"
+          test -x "$binary"
+          if readelf -l "$binary" | grep -q 'Requesting program interpreter'; then
+            echo "::error::pi-desktop-host-core still requires a dynamic ELF interpreter"
+            exit 1
+          fi
+          if readelf -d "$binary" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "::error::pi-desktop-host-core still has shared-library dependencies"
+            readelf -d "$binary"
+            exit 1
+          fi
+          file "$binary"
 
       - name: Assemble and archive pi-host bundle
         id: bundle
@@ -111,7 +131,10 @@ jobs:
           name="pi-host-${version}-linux-x64"
           out="apps/pi-host/dist-bundle"
 
-          node apps/pi-host/scripts/bundle.mjs --platform linux --arch x64
+          node apps/pi-host/scripts/bundle.mjs \
+            --platform linux \
+            --arch x64 \
+            --host-core target/x86_64-unknown-linux-musl/release/pi-desktop-host-core
           test -d "$out/$name"
           tar -czf "$out/${name}.tar.gz" -C "$out" "$name"
           ( cd "$out" && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )

@@ -443,8 +443,11 @@ test("pi-host has an independent bundle, Docker, GHCR, and release workflow", ()
   assert.match(piHostReleaseWorkflowSource, /tags: \['pi-host-v\*\.\*\.\*'\]/);
   assert.match(piHostReleaseWorkflowSource, /Manual pi-host publication must run from main/);
   assert.match(piHostReleaseWorkflowSource, /Validate package, runtime, and tag versions/);
-  assert.match(piHostReleaseWorkflowSource, /cargo build --release --locked -p host-core/);
-  assert.match(piHostReleaseWorkflowSource, /node apps\/pi-host\/scripts\/bundle\.mjs --platform linux --arch x64/);
+  assert.match(piHostReleaseWorkflowSource, /targets: x86_64-unknown-linux-musl/);
+  assert.match(piHostReleaseWorkflowSource, /apt-get install --no-install-recommends -y musl-tools/);
+  assert.match(piHostReleaseWorkflowSource, /cargo build --release --locked -p host-core --target x86_64-unknown-linux-musl/);
+  assert.match(piHostReleaseWorkflowSource, /readelf -d "\$binary"[\s\S]*\(NEEDED\)/);
+  assert.match(piHostReleaseWorkflowSource, /node apps\/pi-host\/scripts\/bundle\.mjs[\s\S]*--host-core target\/x86_64-unknown-linux-musl\/release\/pi-desktop-host-core/);
   assert.match(piHostReleaseWorkflowSource, /name: pi-host-linux-x64/);
 
   const containerJob = piHostReleaseWorkflowSource.match(/^  container:\n[\s\S]*?(?=^  push-image:)/m)?.[0];

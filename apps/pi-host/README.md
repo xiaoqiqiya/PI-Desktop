@@ -22,9 +22,12 @@ A relevant push to `main`, or **Pi Host Docker Release** run manually from
 `pi-host-vX.Y.Z` Tag publishes the versioned
 `:X.Y.Z` and `:vX.Y.Z` images and creates a pi-host-only GitHub Release.
 
-The image uses Node 24 on Debian because `pi-host` is a Node application and the
-released `host-core` binary targets glibc. It cannot use a literal `scratch`
-base image. The image includes CA certificates, Git, OpenSSH client, ripgrep,
+The image uses Node 24 on Debian because `pi-host` is a Node application. Its
+Rust `host-core` binary is built for `x86_64-unknown-linux-musl` and verified to
+have no dynamic ELF interpreter or shared-library dependencies, so the native
+binary does not require the target machine's glibc. The full image still cannot
+use a literal `scratch` base because the Node runtime and Agent tools need a
+userspace. The image includes CA certificates, Git, OpenSSH client, ripgrep,
 and `tini`; project-specific tools still need to be installed by a derived
 image or mounted from the host.
 
