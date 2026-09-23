@@ -443,6 +443,7 @@ test("pi-host has an independent bundle, Docker, GHCR, and release workflow", ()
   assert.match(piHostReleaseWorkflowSource, /tags: \['pi-host-v\*\.\*\.\*'\]/);
   assert.match(piHostReleaseWorkflowSource, /Manual pi-host publication must run from main/);
   assert.match(piHostReleaseWorkflowSource, /Validate package, runtime, and tag versions/);
+  assert.match(piHostReleaseWorkflowSource, /numeric-revision/);
   assert.match(piHostReleaseWorkflowSource, /targets: x86_64-unknown-linux-musl/);
   assert.match(piHostReleaseWorkflowSource, /apt-get install --no-install-recommends -y musl-tools/);
   assert.match(piHostReleaseWorkflowSource, /cargo build --release --locked -p host-core --target x86_64-unknown-linux-musl/);
@@ -466,8 +467,9 @@ test("pi-host has an independent bundle, Docker, GHCR, and release workflow", ()
   assert.match(pushJob, /uses: docker\/login-action@v3/);
   assert.match(pushJob, /docker load --input/);
   assert.match(pushJob, /refs\/tags\/pi-host-v/);
-  assert.match(pushJob, /docker push "\$repository:\$version"/);
-  assert.match(pushJob, /docker push "\$repository:v\$version"/);
+  assert.match(pushJob, /release_version="\$\{GITHUB_REF_NAME#pi-host-v\}"/);
+  assert.match(pushJob, /docker push "\$repository:\$release_version"/);
+  assert.match(pushJob, /docker push "\$repository:v\$release_version"/);
   assert.match(pushJob, /docker push "\$repository:main"/);
   assert.match(pushJob, /docker push "\$repository:\$sha_tag"/);
 

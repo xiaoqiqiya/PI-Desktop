@@ -18,9 +18,10 @@ For package version `X.Y.Z`:
 - Dedicated Tag release assets: the Docker tar, native bundle tarball, and SHA-256
 
 A relevant push to `main`, or **Pi Host Docker Release** run manually from
-`main`, refreshes `:main` and publishes `:sha-<commit>`. Pushing the dedicated
-`pi-host-vX.Y.Z` Tag publishes the versioned
-`:X.Y.Z` and `:vX.Y.Z` images and creates a pi-host-only GitHub Release.
+`main`, refreshes `:main` and publishes `:sha-<commit>`. Pushing `pi-host-vX.Y.Z` or a numeric revision such as `pi-host-vX.Y.Z.1`
+publishes matching `:X.Y.Z[.revision]` and `:vX.Y.Z[.revision]` images and
+creates a pi-host-only GitHub Release. The runtime compatibility version inside
+the bundle remains `X.Y.Z`.
 
 The image uses Node 24 on Debian because `pi-host` is a Node application. Its
 Rust `host-core` binary is built for `x86_64-unknown-linux-musl` and verified to

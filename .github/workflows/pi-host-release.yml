@@ -68,8 +68,10 @@ jobs:
           fi
           if [[ "$GITHUB_REF" == refs/tags/pi-host-v* ]]; then
             tag_version="${GITHUB_REF_NAME#pi-host-v}"
-            if [ "$tag_version" != "$package_version" ]; then
-              echo "::error::Tag pi-host-v$tag_version does not match apps/pi-host/package.json version $package_version."
+            base_version="${tag_version%.*}"
+            revision="${tag_version##*.}"
+            if [[ "$tag_version" != "$package_version" && ( "$base_version" != "$package_version" || ! "$revision" =~ ^[0-9]+$ ) ]]; then
+              echo "::error::Tag must be pi-host-v$package_version or pi-host-v$package_version.<numeric-revision> (got $GITHUB_REF_NAME)."
               exit 1
             fi
           fi
@@ -274,9 +276,11 @@ jobs:
           sha_tag="sha-${GITHUB_SHA:0:12}"
 
           if [[ "$GITHUB_REF" == refs/tags/pi-host-v* ]]; then
-            docker tag "$repository:$version" "$repository:v$version"
-            docker push "$repository:$version"
-            docker push "$repository:v$version"
+            release_version="${GITHUB_REF_NAME#pi-host-v}"
+            docker tag "$repository:$version" "$repository:$release_version"
+            docker tag "$repository:$version" "$repository:v$release_version"
+            docker push "$repository:$release_version"
+            docker push "$repository:v$release_version"
           else
             docker tag "$repository:$version" "$repository:main"
             docker tag "$repository:$version" "$repository:$sha_tag"
