@@ -9,7 +9,7 @@
  * remote machine. Everything here is pure so the URL, target, and checksum
  * rules stay testable without a network or an SSH connection.
  */
-import { GITHUB_REPO } from "@pi-desktop/shared";
+const PI_HOST_RELEASE_REPO = "xiaoqiqiya/PI-Desktop";
 
 /** Platforms the bootstrap can classify from `uname -s`. */
 export type PiHostPlatform = "linux" | "darwin";
@@ -22,7 +22,7 @@ export type PiHostTarget = {
 };
 
 /**
- * Release-matrix parity. `release.yml`'s `pi-host-bundle` job publishes Linux
+ * Release-matrix parity. `pi-host-release.yml` publishes Linux
  * x64 only today; the desktop matrix ships no other Linux platform. A target
  * outside this list is refused with a typed failure instead of a 404 halfway
  * through a download.
@@ -84,15 +84,16 @@ export function piHostArtifactName(version: string, target: PiHostTarget): strin
 }
 
 /**
- * Release asset URLs. `release.yml` uploads both files to the `v<version>` tag,
- * so the desktop and the bootstrap script derive them without an API call.
+ * Release asset URLs. The independent pi-host workflow uploads both files to the
+ * `pi-host-v<version>` Release, so the desktop and bootstrap derive them without
+ * an API call.
  */
 export function piHostArtifactUrls(
   version: string,
   target: PiHostTarget,
 ): { tarball: string; checksum: string } {
   const name = piHostArtifactName(version, target);
-  const base = `https://github.com/${GITHUB_REPO}/releases/download/v${version}`;
+  const base = `https://github.com/${PI_HOST_RELEASE_REPO}/releases/download/pi-host-v${version}`;
   return { tarball: `${base}/${name}`, checksum: `${base}/${name}.sha256` };
 }
 
@@ -105,7 +106,7 @@ export function normalizeChecksum(value: string): string | null {
 }
 
 /**
- * Read the digest out of a `sha256sum` file. `release.yml` writes
+ * Read the digest out of a `sha256sum` file. `pi-host-release.yml` writes
  * `<digest>  <name>`; the file name is checked so a checksum for a different
  * artifact can never be mistaken for this one.
  */

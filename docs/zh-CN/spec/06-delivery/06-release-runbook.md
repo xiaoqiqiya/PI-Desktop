@@ -228,7 +228,25 @@ DMG、ZIP、NSIS、AppImage、deb、rpm、块图和更新程序提要输出已
 发布作业之前压缩级别为零的临时操作工件
 组装 GitHub 版本。
 
-### 4.4 CNB 镜像触发
+### 4.4 独立 pi-host 发布
+
+`.github/workflows/pi-host-release.yml` 是 Linux x64 `pi-host` bundle 与容器
+唯一的 CI/CD 入口。它不依赖桌面安装包矩阵，因此 macOS 签名或安装包失败不会阻塞
+Host 镜像。
+
+- 手动运行只允许选择 `main`：构建原生 bundle、检查 glibc 下限、构建容器并启动到
+  `PI_HOST_READY`，上传 bundle/checksum/离线 Docker tar 到 Actions Artifacts，并且
+  刷新 `ghcr.io/<owner>/pi-host:main`，并发布 `:sha-<commit>`。
+- 专属 `pi-host-vX.Y.Z` Tag 必须同时匹配 `apps/pi-host/package.json`、shared package
+  版本和运行时 `APP_VERSION`；它执行相同构建，推送版本化的 `:<version>` 与
+  `:vX.Y.Z`，并创建只包含 pi-host 原生 tar、checksum 和 Docker tar 的 GitHub Release。
+- 只有 GHCR 推送 job 拥有 `packages: write`；构建 job 保持只读。运行命令与 Linux
+  host-network 要求见 `apps/pi-host/README.md`。
+
+通用 `.github/workflows/release.yml` 只负责桌面安装包，不得重复 pi-host bundle 或
+镜像 job。
+
+### 4.5 CNB 镜像触发
 
 `softprops/action-gh-release` 发布或更新 GitHub Release 之后，
 `.github/workflows/mirror-to-cnb.yml` 会启动 `aixk/Pi-Desktop` 上的 CNB
@@ -238,8 +256,8 @@ https://cnb.cool/aixk/Pi-Desktop 拉取的用户使用。
 该作业：
 
 - 仅在 `vastsa/PI-Desktop` 上运行
-- 在 `release` 的 `published` / `edited` 时触发，也可通过
-  `workflow_dispatch` 传入明确标签（例如 `v0.14.6`）
+- `release` 的 `published` / `edited` 只镜像桌面 `v...` Release，忽略专属
+  `pi-host-v...` Release；也可通过 `workflow_dispatch` 传入明确标签（例如 `v0.14.6`）
 - 发送事件 `api_trigger_mirror`，并把 `MIRROR_TAGS` 设为该标签
 - 使用仓库密钥 `CNB_MIRROR_TOKEN`（已配置）；密钥为空时失败退出
 - 用 `jq` 构造 JSON，避免手动运行时标签缺失导致空的 `MIRROR_TAGS`
@@ -247,7 +265,7 @@ https://cnb.cool/aixk/Pi-Desktop 拉取的用户使用。
 若 CNB 流水线幂等，对同一标签重跑是安全的。它不会重新构建桌面产物，
 也不会改写 electron-updater 更新源。
 
-### 4.5 GitHub Actions 中的 macOS 签名密钥
+### 4.6 GitHub Actions 中的 macOS 签名密钥
 
 在 GitHub → 仓库 `vastsa/PI-Desktop` → Settings → Secrets and variables →
 Actions 中创建下列密钥。不要把 p12、密码、Apple ID 或应用专用密码提交进仓库。
@@ -270,7 +288,7 @@ base64 -i developer-id-application.p12 | pbcopy
 Linux 使用 `base64 -w0 developer-id-application.p12`。绝不能进入 git 的文件：
 `*.p12`、`*.cer`、`*.p8`、`*.mobileprovision`。
 
-### 4.6 macOS 签名可观测性与超时
+### 4.7 macOS 签名可观测性与超时
 
 `electron-builder` 在开始签名前只打印一行 —— `signing
 file=release/mac-arm64/PI-Desktop.app platform=darwin type=distribution
